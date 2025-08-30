@@ -38,6 +38,7 @@ class ProcessMonitor:
         self.master_fd: Optional[int] = None
         self.original_termios = None
         self.last_title_update = 0
+        self.last_title_interception = 0  # Track when we last intercepted a title
         self.title_update_interval = 0.5  # Update title every 0.5 seconds if no title sequences
         
         # ANSI escape sequence patterns
@@ -100,12 +101,57 @@ class ProcessMonitor:
         """Send a proactive title update for processes that don't set titles."""
         if self.last_stats:
             current_time = time.time()
+            
+            # Don't send proactive updates if we recently intercepted a title
+            # This prevents overwriting intercepted titles with proactive ones
+            time_since_interception = current_time - self.last_title_interception
+            if time_since_interception < 1.0:  # Suppress for 1 second after interception
+                return
+            
             if current_time - self.last_title_update >= self.title_update_interval:
                 # Send title directly to terminal
                 title_sequence = f'\033]0;{self.last_stats}\007'
-                sys.stdout.write(title_sequence)
-                sys.stdout.flush()
-                self.last_title_update = current_time
+                try:
+                    sys.stdout.write(title_sequence)
+                    sys.stdout.flush()
+                    self.last_title_update = current_time
+                except (OSError, IOError):
+                    pass  # Ignore output errors
+    
+    def is_likely_interactive(self, command: List[str]) -> bool:
+        """Detect if a command is likely to be an interactive application"""
+        if not command:
+            return False
+        
+        # Get the base command name
+        cmd_name = os.path.basename(command[0])
+        
+        # Known interactive applications that need raw terminal mode
+        interactive_apps = {
+            'vim', 'vi', 'nano', 'emacs',
+            'htop', 'top', 'btop', 'atop',
+            'less', 'more', 'man',
+            'tmux', 'screen',
+            'bash', 'sh', 'zsh', 'fish',
+            'python', 'python3', 'ipython',
+            'node', 'irb', 'ghci'
+        }
+        
+        # Also check for common non-interactive commands to optimize
+        non_interactive_apps = {
+            'sleep', 'echo', 'cat', 'grep', 'find', 'sort',
+            'make', 'gcc', 'clang', 'cargo', 'npm', 'pip',
+            'git', 'curl', 'wget', 'tar', 'gzip'
+        }
+        
+        if cmd_name in non_interactive_apps:
+            return False
+        
+        if cmd_name in interactive_apps:
+            return True
+        
+        # Default to interactive for unknown commands to be safe
+        return True
     
     def get_process_tree_stats(self, process: psutil.Process) -> Dict[str, float]:
         """Get CPU and memory statistics for process and all its children."""
@@ -151,14 +197,17 @@ class ProcessMonitor:
         if original_title and original_title not in self.original_titles:
             self.original_titles.append(original_title)
         
+        # Record that we intercepted a title (to suppress proactive updates briefly)
+        self.last_title_interception = time.time()
+        
         # Create new title with resource info
         if original_title:
             new_title = f"{original_title} | {stats_text}"
         else:
             new_title = stats_text
         
-        # Reconstruct the escape sequence with the new title
-        sequence_start = match.group(0)[:3]  # \x1b]0; or \x1b]2; etc.
+        # Reconstruct the escape sequence with the new title  
+        sequence_start = match.group(0)[:4]  # \x1b]0; or \x1b]2; etc. (include semicolon)
         
         if match.group(0).endswith(b'\x07'):
             # Bell terminator
@@ -193,12 +242,60 @@ class ProcessMonitor:
             time.sleep(self.refresh_interval)
     
     def run_command(self, command: List[str]) -> int:
-        """Run command in a PTY with resource monitoring and title interception."""
+        """Run command with resource monitoring and title interception."""
         
         print(f"🚀 Starting monitored process: {' '.join(command)}")
         print(f"📊 Resource monitoring interval: {self.refresh_interval}s")
-        print(f"🔄 Intercepting terminal title changes...")
+        
+        # Detect if command needs full PTY support
+        is_interactive = self.is_likely_interactive(command)
+        
+        if is_interactive:
+            print(f"🔄 Interactive mode: Full PTY with title interception...")
+            return self._run_with_pty(command)
+        else:
+            print(f"🔄 Non-interactive mode: Direct piping with proactive titles...")
+            return self._run_direct(command)
+    
+    def _run_direct(self, command: List[str]) -> int:
+        """Run command using direct subprocess for non-interactive commands."""
         print("")
+        
+        try:
+            # Start subprocess with direct piping
+            process = subprocess.Popen(
+                command,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr
+            )
+            
+            # Get psutil process handle
+            self.main_process = psutil.Process(process.pid)
+            
+            # Start resource monitoring thread
+            stats_thread = threading.Thread(target=self.stats_updater, daemon=True)
+            stats_thread.start()
+            
+            # Wait for process to finish
+            exit_code = process.wait()
+            
+            print(f"\n✅ Process completed with exit code: {exit_code}")
+            return exit_code
+            
+        finally:
+            # Clean up resources
+            self.running = False
+            
+            # Reset terminal title
+            try:
+                sys.stdout.write('\033]0;Terminal\007')
+                sys.stdout.flush()
+            except (OSError, IOError):
+                pass  # Ignore errors during cleanup
+        
+    def _run_with_pty(self, command: List[str]) -> int:
+        """Run command using PTY for full interactive support."""
         
         # Create PTY
         master_fd, slave_fd = pty.openpty()
@@ -208,7 +305,7 @@ class ProcessMonitor:
         rows, cols = self.get_terminal_size()
         self.set_pty_size(master_fd, rows, cols)
         
-        # Set up terminal for transparent operation
+        # Set up raw terminal mode for interactive applications
         self.setup_raw_terminal()
         
         # Set up SIGWINCH handler for window size changes
@@ -226,6 +323,10 @@ class ProcessMonitor:
             
             # Get psutil process handle
             self.main_process = psutil.Process(process.pid)
+            
+            # Get initial stats before starting I/O loop
+            initial_stats = self.get_process_tree_stats(self.main_process)
+            self.last_stats = self.format_stats(initial_stats)
             
             # Start resource monitoring thread
             stats_thread = threading.Thread(target=self.stats_updater, daemon=True)
@@ -245,24 +346,29 @@ class ProcessMonitor:
             signal.signal(signal.SIGINT, signal_handler)
             signal.signal(signal.SIGTERM, signal_handler)
             
-            # Main I/O loop
+            # Main I/O loop - optimized for efficiency
             try:
+                # Use longer timeout to reduce CPU usage - wake up only when needed
+                timeout = 0.5  # Half second timeout - responsive but efficient
+                
                 while self.running:
-                    ready, _, _ = select.select([sys.stdin, master_fd], [], [], 0.1)
+                    ready, _, _ = select.select([sys.stdin, master_fd], [], [], timeout)
                     
+                    # Process input if available
                     if sys.stdin in ready:
-                        # Forward input from terminal to process
                         try:
-                            data = os.read(sys.stdin.fileno(), 1024)
+                            # Use larger buffer for efficiency
+                            data = os.read(sys.stdin.fileno(), 4096)
                             if data:
                                 os.write(master_fd, data)
                         except OSError:
                             break
                     
+                    # Process output if available  
                     if master_fd in ready:
-                        # Read output from process and modify it
                         try:
-                            data = os.read(master_fd, 1024)
+                            # Use larger buffer for efficiency
+                            data = os.read(master_fd, 4096)
                             if data:
                                 # Process and modify the output
                                 modified_data = self.process_output(data, self.last_stats)
@@ -273,8 +379,8 @@ class ProcessMonitor:
                         except OSError:
                             break
                     
-                    # Check if process is still running
-                    if process.poll() is not None:
+                    # Only check process status if no I/O occurred (avoid syscall overhead)
+                    if not ready and process.poll() is not None:
                         break
                 
             except KeyboardInterrupt:
@@ -306,8 +412,11 @@ class ProcessMonitor:
                 pass
             
             # Reset terminal title
-            sys.stdout.write('\033]0;Terminal\007')
-            sys.stdout.flush()
+            try:
+                sys.stdout.write('\033]0;Terminal\007')
+                sys.stdout.flush()
+            except (OSError, IOError):
+                pass  # Ignore errors during cleanup
             
             self.master_fd = None
 
