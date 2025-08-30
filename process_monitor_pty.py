@@ -39,6 +39,7 @@ class ProcessMonitor:
         self.original_termios = None
         self.last_title_update = 0
         self.last_title_interception = 0  # Track when we last intercepted a title
+        self.last_intercepted_title = ""  # Store the last intercepted title for reuse
         self.title_update_interval = 0.5  # Update title every 0.5 seconds if no title sequences
         
         # ANSI escape sequence patterns
@@ -109,8 +110,14 @@ class ProcessMonitor:
                 return
             
             if current_time - self.last_title_update >= self.title_update_interval:
+                # Create title that preserves last intercepted title if available
+                if self.last_intercepted_title:
+                    title_content = f"{self.last_intercepted_title} | {self.last_stats}"
+                else:
+                    title_content = self.last_stats
+                
                 # Send title directly to terminal
-                title_sequence = f'\033]0;{self.last_stats}\007'
+                title_sequence = f'\033]0;{title_content}\007'
                 try:
                     sys.stdout.write(title_sequence)
                     sys.stdout.flush()
@@ -196,6 +203,9 @@ class ProcessMonitor:
         # Store original title for reference
         if original_title and original_title not in self.original_titles:
             self.original_titles.append(original_title)
+        
+        # Store the intercepted title for reuse in proactive updates
+        self.last_intercepted_title = original_title
         
         # Record that we intercepted a title (to suppress proactive updates briefly)
         self.last_title_interception = time.time()
