@@ -14,6 +14,10 @@ import time
 import re
 import signal
 import argparse
+import struct
+import fcntl
+import termios
+import tty
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -31,6 +35,10 @@ class ProcessMonitor:
         self.original_titles: List[str] = []
         self.last_stats = ""
         self.running = True
+        self.master_fd: Optional[int] = None
+        self.original_termios = None
+        self.last_title_update = 0
+        self.title_update_interval = 0.5  # Update title every 0.5 seconds if no title sequences
         
         # ANSI escape sequence patterns
         self.title_patterns = [
@@ -40,6 +48,64 @@ class ProcessMonitor:
             re.compile(rb'\x1b\]0;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
             re.compile(rb'\x1b\]2;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
         ]
+    
+    def get_terminal_size(self) -> Tuple[int, int]:
+        """Get current terminal size (rows, cols)."""
+        try:
+            # Try to get size from stdin
+            size_data = struct.pack('HHHH', 0, 0, 0, 0)
+            result = fcntl.ioctl(sys.stdin.fileno(), termios.TIOCGWINSZ, size_data)
+            rows, cols, _, _ = struct.unpack('HHHH', result)
+            return (rows, cols) if rows and cols else (24, 80)
+        except (OSError, IOError):
+            # Fallback to environment variables or default
+            try:
+                rows = int(os.environ.get('LINES', 24))
+                cols = int(os.environ.get('COLUMNS', 80))
+                return (rows, cols)
+            except ValueError:
+                return (24, 80)
+    
+    def set_pty_size(self, fd: int, rows: int, cols: int) -> None:
+        """Set the size of a PTY."""
+        try:
+            size_data = struct.pack('HHHH', rows, cols, 0, 0)
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, size_data)
+        except (OSError, IOError):
+            pass  # Ignore errors - size setting is best effort
+    
+    def handle_window_size_change(self, signum, frame):
+        """Handle SIGWINCH signal and forward to PTY."""
+        if self.master_fd is not None:
+            rows, cols = self.get_terminal_size()
+            self.set_pty_size(self.master_fd, rows, cols)
+    
+    def setup_raw_terminal(self):
+        """Set up terminal in raw mode for transparent pass-through."""
+        try:
+            self.original_termios = termios.tcgetattr(sys.stdin.fileno())
+            tty.setraw(sys.stdin.fileno())
+        except (OSError, IOError, termios.error):
+            pass  # Not a terminal or can't set raw mode
+    
+    def restore_terminal(self):
+        """Restore original terminal settings."""
+        if self.original_termios is not None:
+            try:
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, self.original_termios)
+            except (OSError, IOError, termios.error):
+                pass
+    
+    def send_proactive_title_update(self):
+        """Send a proactive title update for processes that don't set titles."""
+        if self.last_stats:
+            current_time = time.time()
+            if current_time - self.last_title_update >= self.title_update_interval:
+                # Send title directly to terminal
+                title_sequence = f'\033]0;{self.last_stats}\007'
+                sys.stdout.write(title_sequence)
+                sys.stdout.flush()
+                self.last_title_update = current_time
     
     def get_process_tree_stats(self, process: psutil.Process) -> Dict[str, float]:
         """Get CPU and memory statistics for process and all its children."""
@@ -116,6 +182,9 @@ class ProcessMonitor:
                 if self.main_process.is_running():
                     stats = self.get_process_tree_stats(self.main_process)
                     self.last_stats = self.format_stats(stats)
+                    
+                    # Send proactive title update for applications that don't set titles
+                    self.send_proactive_title_update()
                 else:
                     break
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -133,6 +202,17 @@ class ProcessMonitor:
         
         # Create PTY
         master_fd, slave_fd = pty.openpty()
+        self.master_fd = master_fd
+        
+        # Set initial PTY size to match current terminal
+        rows, cols = self.get_terminal_size()
+        self.set_pty_size(master_fd, rows, cols)
+        
+        # Set up terminal for transparent operation
+        self.setup_raw_terminal()
+        
+        # Set up SIGWINCH handler for window size changes
+        signal.signal(signal.SIGWINCH, self.handle_window_size_change)
         
         try:
             # Start the subprocess
@@ -213,6 +293,13 @@ class ProcessMonitor:
         finally:
             # Clean up resources
             self.running = False
+            
+            # Restore terminal settings
+            self.restore_terminal()
+            
+            # Reset SIGWINCH handler to default
+            signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+            
             try:
                 os.close(master_fd)
             except OSError:
@@ -221,6 +308,8 @@ class ProcessMonitor:
             # Reset terminal title
             sys.stdout.write('\033]0;Terminal\007')
             sys.stdout.flush()
+            
+            self.master_fd = None
 
 
 def main():
