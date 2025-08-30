@@ -43,10 +43,10 @@ test_wrapper() {
 }
 
 # Test 1: Python wrapper (2s interval)
-test_wrapper "python3 process_monitor_pty.py --interval 2 -- sleep 15" "Python Wrapper (2s interval)"
+test_wrapper "toptle --interval 2 -- sleep 15" "Python Wrapper (2s interval)"
 
 # Test 2: Python wrapper (0.5s interval) 
-test_wrapper "python3 process_monitor_pty.py --interval 0.5 -- sleep 15" "Python Wrapper (0.5s interval)"
+test_wrapper "toptle --interval 0.5 -- sleep 15" "Python Wrapper (0.5s interval)"
 
 # Test 3: Bash wrapper
 test_wrapper "./process_monitor_wrapper.sh sleep 15" "Bash Wrapper"

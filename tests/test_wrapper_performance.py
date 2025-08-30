@@ -90,8 +90,7 @@ def test_python_wrapper():
     print("="*50)
     
     return monitor_process_overhead([
-        'python3', 'process_monitor_pty.py', 
-        '--interval', '2', '--', 'sleep', '30'
+        'toptle', '--interval', '2', '--', 'sleep', '30'
     ], duration=10)
 
 def test_bash_wrapper():
@@ -109,8 +108,7 @@ def test_python_wrapper_high_frequency():
     print("="*50)
     
     return monitor_process_overhead([
-        'python3', 'process_monitor_pty.py', 
-        '--interval', '0.5', '--', 'sleep', '30'
+        'toptle', '--interval', '0.5', '--', 'sleep', '30'
     ], duration=10)
 
 def compare_results(baseline, python_normal, bash, python_high_freq):
@@ -158,8 +156,8 @@ def main():
     print("Each test runs for 10 seconds with 0.5s sampling")
     
     # Check dependencies
-    if not os.path.exists('process_monitor_pty.py'):
-        print("ERROR: process_monitor_pty.py not found")
+    if not os.path.exists('toptle'):
+        print("ERROR: toptle not found")
         sys.exit(1)
     
     if not os.path.exists('process_monitor_wrapper.sh'):
