@@ -22,6 +22,7 @@ import fcntl
 import termios
 import tty
 from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
 
 try:
     import psutil
@@ -80,11 +81,30 @@ class Config:
     ]
 
 
+@dataclass
+class ProcessStats:
+    """Resource statistics for a process tree."""
+    cpu_percent: float = 0.0
+    memory_mb: float = 0.0
+    disk_read_rate: float = 0.0
+    disk_write_rate: float = 0.0
+    net_sent_rate: float = 0.0
+    net_recv_rate: float = 0.0
+    open_files: int = 0
+    thread_count: int = 0
+    process_count: int = 0
+
+
 class Toptle:
     def __init__(self, refresh_interval: float = Config.DEFAULT_REFRESH_INTERVAL, 
-                 title_prefix: str = Config.DEFAULT_TITLE_PREFIX):
+                 title_prefix: str = Config.DEFAULT_TITLE_PREFIX,
+                 metrics: str = "cpu,ram"):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
+        
+        # Parse and validate metrics
+        self.metrics = self._parse_metrics(metrics)
+        
         self.main_process: Optional[psutil.Process] = None
         self.original_titles: List[str] = []
         self.last_stats = ""
@@ -95,6 +115,28 @@ class Toptle:
         self.last_title_interception = 0
         self.last_intercepted_title = ""
         self.default_title = ""
+        
+        # For rate calculations
+        self.last_io_counters = None
+        self.last_net_counters = None
+        self.last_measurement_time = 0
+    
+    def _parse_metrics(self, metrics_str: str) -> List[str]:
+        """Parse and validate metrics string."""
+        available_metrics = ['cpu', 'ram', 'disk', 'net', 'files', 'threads']
+        
+        if metrics_str.lower() == 'all':
+            return available_metrics.copy()
+        
+        metrics = [m.strip().lower() for m in metrics_str.split(',')]
+        
+        # Validate all metrics are available
+        invalid_metrics = [m for m in metrics if m not in available_metrics]
+        if invalid_metrics:
+            raise ValueError(f"Invalid metrics: {', '.join(invalid_metrics)}. "
+                           f"Available: {', '.join(available_metrics)}")
+        
+        return metrics
     
     def get_terminal_size(self) -> Tuple[int, int]:
         """Get current terminal size (rows, cols)."""
@@ -189,37 +231,98 @@ class Toptle:
         # Default to interactive for unknown commands to be safe
         return True
     
-    def get_process_tree_stats(self, process: psutil.Process) -> Dict[str, float]:
-        """Get CPU and memory statistics for process and all its children."""
+    def get_process_tree_stats(self, process: psutil.Process) -> ProcessStats:
+        """Get resource statistics for process and all its children."""
         try:
             # Get all processes in the tree (including the main process)
             processes = [process] + process.children(recursive=True)
             
+            # Basic counters
             total_cpu = 0.0
             total_memory = 0.0  # in MB
+            total_files = 0
+            total_threads = 0
+            
+            # I/O counters (for rate calculation)
+            total_disk_read = 0
+            total_disk_write = 0
+            
+            current_time = time.time()
             
             for proc in processes:
                 try:
-                    # Get CPU percentage (averaged over interval)
+                    # CPU and memory (existing)
                     cpu_percent = proc.cpu_percent()
-                    # Get memory info in MB
                     memory_info = proc.memory_info()
                     memory_mb = memory_info.rss / Config.BYTES_TO_MB
                     
                     total_cpu += cpu_percent
                     total_memory += memory_mb
                     
+                    # File descriptors and threads (if requested)
+                    if 'files' in self.metrics:
+                        total_files += proc.num_fds() if hasattr(proc, 'num_fds') else len(proc.open_files())
+                    
+                    if 'threads' in self.metrics:
+                        total_threads += proc.num_threads()
+                    
+                    # Disk I/O (if requested)
+                    if 'disk' in self.metrics:
+                        try:
+                            io_counters = proc.io_counters()
+                            total_disk_read += io_counters.read_bytes
+                            total_disk_write += io_counters.write_bytes
+                        except (AttributeError, psutil.AccessDenied):
+                            pass
+                    
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
-            return {
-                'cpu_percent': total_cpu,
-                'memory_mb': total_memory,
-                'process_count': len(processes)
-            }
+            # Network I/O (system-wide, if requested)
+            net_sent_rate = 0.0
+            net_recv_rate = 0.0
+            if 'net' in self.metrics:
+                try:
+                    net_counters = psutil.net_io_counters()
+                    if net_counters and self.last_net_counters and self.last_measurement_time:
+                        time_delta = current_time - self.last_measurement_time
+                        if time_delta > 0:
+                            net_sent_rate = (net_counters.bytes_sent - self.last_net_counters.bytes_sent) / time_delta
+                            net_recv_rate = (net_counters.bytes_recv - self.last_net_counters.bytes_recv) / time_delta
+                    
+                    self.last_net_counters = net_counters
+                except (AttributeError, psutil.AccessDenied):
+                    pass
+            
+            # Disk I/O rates
+            disk_read_rate = 0.0
+            disk_write_rate = 0.0
+            if 'disk' in self.metrics and self.last_io_counters and self.last_measurement_time:
+                time_delta = current_time - self.last_measurement_time
+                if time_delta > 0:
+                    disk_read_rate = (total_disk_read - self.last_io_counters['read']) / time_delta
+                    disk_write_rate = (total_disk_write - self.last_io_counters['write']) / time_delta
+            
+            # Store current I/O counters for next calculation
+            if 'disk' in self.metrics:
+                self.last_io_counters = {'read': total_disk_read, 'write': total_disk_write}
+            
+            self.last_measurement_time = current_time
+            
+            return ProcessStats(
+                cpu_percent=total_cpu,
+                memory_mb=total_memory,
+                disk_read_rate=disk_read_rate,
+                disk_write_rate=disk_write_rate,
+                net_sent_rate=net_sent_rate,
+                net_recv_rate=net_recv_rate,
+                open_files=total_files,
+                thread_count=total_threads,
+                process_count=len(processes)
+            )
         
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return {'cpu_percent': 0.0, 'memory_mb': 0.0, 'process_count': 0}
+            return ProcessStats()
     
     def _cleanup_resources(self, master_fd: Optional[int] = None, reset_signals: bool = False):
         """Common cleanup logic for resources and terminal state."""
@@ -260,9 +363,52 @@ class Toptle:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
-    def format_stats(self, stats: Dict[str, float]) -> str:
-        """Format resource statistics into a readable string."""
-        return f"{self.title_prefix} {stats['cpu_percent']:.1f}% CPU, {stats['memory_mb']:.1f}MB RAM"
+    def format_stats(self, stats: ProcessStats) -> str:
+        """Format resource statistics into a readable string based on selected metrics."""
+        parts = [self.title_prefix]
+        
+        for metric in self.metrics:
+            if metric == 'cpu':
+                parts.append(f"{stats.cpu_percent:.1f}% CPU")
+            elif metric == 'ram':
+                parts.append(f"{stats.memory_mb:.1f}MB RAM")
+            elif metric == 'disk':
+                read_rate = self._format_rate(stats.disk_read_rate)
+                write_rate = self._format_rate(stats.disk_write_rate)
+                unit = self._get_rate_unit(max(stats.disk_read_rate, stats.disk_write_rate))
+                parts.append(f"disk ↑{read_rate} ↓{write_rate} {unit}")
+            elif metric == 'net':
+                sent_rate = self._format_rate(stats.net_sent_rate)
+                recv_rate = self._format_rate(stats.net_recv_rate)
+                unit = self._get_rate_unit(max(stats.net_sent_rate, stats.net_recv_rate))
+                parts.append(f"net ↑{sent_rate} ↓{recv_rate} {unit}")
+            elif metric == 'files':
+                parts.append(f"{stats.open_files} files")
+            elif metric == 'threads':
+                parts.append(f"{stats.thread_count} threads")
+        
+        if len(parts) > 1:
+            return parts[0] + " " + ", ".join(parts[1:])
+        else:
+            return parts[0]
+    
+    def _format_rate(self, bytes_per_sec: float) -> str:
+        """Format a rate value (without unit)."""
+        if bytes_per_sec >= 1024 * 1024:  # MB/s
+            return f"{bytes_per_sec / (1024 * 1024):.1f}"
+        elif bytes_per_sec >= 1024:  # KB/s
+            return f"{bytes_per_sec / 1024:.0f}"
+        else:  # B/s
+            return f"{bytes_per_sec:.0f}"
+    
+    def _get_rate_unit(self, bytes_per_sec: float) -> str:
+        """Get the appropriate unit for a rate."""
+        if bytes_per_sec >= 1024 * 1024:
+            return "MB/s"
+        elif bytes_per_sec >= 1024:
+            return "KB/s"
+        else:
+            return "B/s"
     
     def modify_title_sequence(self, match: re.Match, stats_text: str) -> bytes:
         """Modify a terminal title escape sequence to include resource stats."""
@@ -474,22 +620,30 @@ def main():
         epilog="""
 Examples:
   %(prog)s htop
-  %(prog)s --interval 1 --prefix "🔥" -- vim README.md
+  %(prog)s -i 1 -p "🔥" -- vim README.md
+  %(prog)s -m cpu,ram,disk -- make build
+  %(prog)s -m all -i 0.5 -- ./long-running-script.sh
   %(prog)s -- bash -c "for i in {1..100}; do echo $i; sleep 0.1; done"
         """
     )
     
     parser.add_argument(
-        '--interval',
+        '--interval', '-i',
         type=float,
         default=Config.DEFAULT_REFRESH_INTERVAL,
         help='Resource monitoring update interval in seconds (default: 2.0)'
     )
     
     parser.add_argument(
-        '--prefix',
+        '--prefix', '-p',
         default=Config.DEFAULT_TITLE_PREFIX,
         help='Prefix for resource stats in title'
+    )
+    
+    parser.add_argument(
+        '--metrics', '-m',
+        default='cpu,ram',
+        help='Metrics to display: cpu,ram,disk,net,files,threads,all (default: cpu,ram)'
     )
     
     parser.add_argument(
@@ -509,7 +663,8 @@ Examples:
     
     monitor = Toptle(
         refresh_interval=args.interval,
-        title_prefix=args.prefix
+        title_prefix=args.prefix,
+        metrics=args.metrics
     )
     
     try:

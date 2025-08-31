@@ -35,23 +35,41 @@ toptle [OPTIONS] [--] COMMAND [ARGS...]
 ```
 
 **Options:**
-- `--interval SECONDS` - Update interval in seconds (default: 2.0)
-- `--prefix PREFIX` - Custom prefix for resource stats (default: 📊)
+- `--interval`, `-i SECONDS` - Update interval in seconds (default: 2.0)
+- `--prefix`, `-p PREFIX` - Custom prefix for resource stats (default: 📊)
+- `--metrics`, `-m METRICS` - Metrics to display: cpu,ram,disk,net,files,threads,all (default: cpu,ram)
 
 **Examples:**
 ```bash
-toptle -- vim README.md                    # Monitor editing session
-toptle --interval 0.5 -- make -j4          # Watch build with fast updates
-toptle --prefix "⚡" -- ./long-script.sh    # Custom prefix
+toptle -- vim README.md                    # Default metrics (CPU, RAM)
+toptle -i 0.5 -- make -j4                  # Fast updates
+toptle -m cpu,ram,disk -- make build       # Add disk I/O monitoring
+toptle -m all -i 1 -- ./long-script.sh     # All metrics with 1s interval
+toptle -p "⚡" -m cpu,ram,net -- server     # Custom prefix with network I/O
 ```
 
 ## Features
 
+- **Customizable metrics** - Choose from CPU, RAM, disk I/O, network I/O, file descriptors, thread count
 - **Dual-mode architecture** - Automatically chooses optimal monitoring approach
 - **Title interception** - Preserves and enhances existing terminal title changes
 - **Process tree monitoring** - Tracks resource usage of parent process and all children
 - **Terminal transparency** - Proper window size forwarding, raw terminal mode support
 - **SIGWINCH handling** - Terminal resize events work correctly in interactive apps
+
+## Available Metrics
+
+- **cpu** - CPU percentage across all processes in the tree
+- **ram** - Memory usage in MB (RSS)
+- **disk** - Disk I/O rates: `↑12 ↓8 KB/s` (↑=read, ↓=write)
+- **net** - Network I/O rates: `↑0 ↓15 KB/s` (↑=upload, ↓=download, system-wide)
+- **files** - Open file descriptor count
+- **threads** - Thread count across all processes
+
+**Example outputs:**
+- Default: `📊 5.2% CPU, 45MB RAM`
+- With I/O: `📊 5.2% CPU, 45MB RAM, disk ↑12 ↓8 KB/s, net ↑0 ↓15 KB/s`
+- All metrics: `📊 5.2% CPU, 45MB RAM, disk ↑12 ↓8 KB/s, net ↑0 ↓15 KB/s, 15 files, 3 threads`
 
 ## Performance
 
