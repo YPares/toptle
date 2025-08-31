@@ -58,9 +58,8 @@
           buildInputs = with pkgs; [
             python3
             python3Packages.psutil
-            python3Packages.pytest
-            python3Packages.black
-            python3Packages.flake8
+            #python3Packages.ruff
+            python3Packages.python-lsp-server
           ];
         };
       }
