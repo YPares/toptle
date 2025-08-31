@@ -31,6 +31,16 @@ except ImportError:
     sys.exit(1)
 
 
+# Pre-compiled regex patterns for title sequence detection (module-level for efficiency)
+TITLE_SEQUENCE_PATTERNS = [
+    re.compile(rb'\x1b\]0;([^\x07\x1b]*)\x07'),      # OSC 0 (window and icon title)
+    re.compile(rb'\x1b\]2;([^\x07\x1b]*)\x07'),      # OSC 2 (window title)
+    re.compile(rb'\x1b\]1;([^\x07\x1b]*)\x07'),      # OSC 1 (icon title)
+    re.compile(rb'\x1b\]0;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
+    re.compile(rb'\x1b\]2;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
+]
+
+
 # Constants
 class Config:
     """Configuration constants for the process monitor."""
@@ -70,15 +80,6 @@ class Config:
         'make', 'gcc', 'clang', 'cargo', 'npm', 'pip',
         'git', 'curl', 'wget', 'tar', 'gzip'
     }
-    
-    # ANSI escape sequence patterns
-    TITLE_PATTERNS = [
-        re.compile(rb'\x1b\]0;([^\x07\x1b]*)\x07'),      # OSC 0 (both icon and window title)
-        re.compile(rb'\x1b\]2;([^\x07\x1b]*)\x07'),      # OSC 2 (window title)
-        re.compile(rb'\x1b\]1;([^\x07\x1b]*)\x07'),      # OSC 1 (icon title)
-        re.compile(rb'\x1b\]0;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
-        re.compile(rb'\x1b\]2;([^\x07\x1b]*)\x1b\\'),    # Alternative terminator
-    ]
 
 
 @dataclass
@@ -123,18 +124,20 @@ class Toptle:
     
     def _parse_metrics(self, metrics_str: str) -> List[str]:
         """Parse and validate metrics string."""
-        available_metrics = ['cpu', 'ram', 'disk', 'net', 'files', 'threads']
+        available_metrics_set = {'cpu', 'ram', 'disk', 'net', 'files', 'threads'}
+        available_metrics_list = ['cpu', 'ram', 'disk', 'net', 'files', 'threads']
         
         if metrics_str.lower() == 'all':
-            return available_metrics.copy()
+            return available_metrics_list.copy()
         
         metrics = [m.strip().lower() for m in metrics_str.split(',')]
         
-        # Validate all metrics are available
-        invalid_metrics = [m for m in metrics if m not in available_metrics]
+        # Validate all metrics are available using set operations (faster)
+        # but preserve the original order by only using sets for validation
+        invalid_metrics = set(metrics) - available_metrics_set
         if invalid_metrics:
-            raise ValueError(f"Invalid metrics: {', '.join(invalid_metrics)}. "
-                           f"Available: {', '.join(available_metrics)}")
+            raise ValueError(f"Invalid metrics: {', '.join(sorted(invalid_metrics))}. "
+                           f"Available: {', '.join(available_metrics_list)}")
         
         return metrics
     
@@ -365,50 +368,52 @@ class Toptle:
     
     def format_stats(self, stats: ProcessStats) -> str:
         """Format resource statistics into a readable string based on selected metrics."""
-        parts = [self.title_prefix]
+        metric_parts = []
         
         for metric in self.metrics:
             if metric == 'cpu':
-                parts.append(f"{stats.cpu_percent:.1f}% CPU")
+                metric_parts.append(f"{stats.cpu_percent:.1f}% CPU")
             elif metric == 'ram':
-                parts.append(f"{stats.memory_mb:.1f}MB RAM")
+                metric_parts.append(f"{stats.memory_mb:.1f}MB RAM")
             elif metric == 'disk':
-                read_rate = self._format_rate(stats.disk_read_rate)
-                write_rate = self._format_rate(stats.disk_write_rate)
-                unit = self._get_rate_unit(max(stats.disk_read_rate, stats.disk_write_rate))
-                parts.append(f"disk ↑{read_rate} ↓{write_rate} {unit}")
+                formatted_rates = self._format_io_rates(stats.disk_read_rate, stats.disk_write_rate)
+                metric_parts.append(f"disk {formatted_rates}")
             elif metric == 'net':
-                sent_rate = self._format_rate(stats.net_sent_rate)
-                recv_rate = self._format_rate(stats.net_recv_rate)
-                unit = self._get_rate_unit(max(stats.net_sent_rate, stats.net_recv_rate))
-                parts.append(f"net ↑{sent_rate} ↓{recv_rate} {unit}")
+                formatted_rates = self._format_io_rates(stats.net_sent_rate, stats.net_recv_rate)
+                metric_parts.append(f"net {formatted_rates}")
             elif metric == 'files':
-                parts.append(f"{stats.open_files} files")
+                metric_parts.append(f"{stats.open_files} files")
             elif metric == 'threads':
-                parts.append(f"{stats.thread_count} threads")
+                metric_parts.append(f"{stats.thread_count} threads")
         
-        if len(parts) > 1:
-            return parts[0] + " " + ", ".join(parts[1:])
+        if metric_parts:
+            return f"{self.title_prefix} {', '.join(metric_parts)}"
         else:
-            return parts[0]
+            return self.title_prefix
     
-    def _format_rate(self, bytes_per_sec: float) -> str:
-        """Format a rate value (without unit)."""
+    def _format_rate_with_unit(self, bytes_per_sec: float) -> str:
+        """Format a rate value with appropriate unit."""
         if bytes_per_sec >= 1024 * 1024:  # MB/s
-            return f"{bytes_per_sec / (1024 * 1024):.1f}"
+            return f"{bytes_per_sec / (1024 * 1024):.1f} MB/s"
         elif bytes_per_sec >= 1024:  # KB/s
-            return f"{bytes_per_sec / 1024:.0f}"
+            return f"{bytes_per_sec / 1024:.0f} KB/s"
         else:  # B/s
-            return f"{bytes_per_sec:.0f}"
+            return f"{bytes_per_sec:.0f} B/s"
     
-    def _get_rate_unit(self, bytes_per_sec: float) -> str:
-        """Get the appropriate unit for a rate."""
-        if bytes_per_sec >= 1024 * 1024:
-            return "MB/s"
-        elif bytes_per_sec >= 1024:
-            return "KB/s"
-        else:
-            return "B/s"
+    def _format_io_rates(self, read_rate: float, write_rate: float) -> str:
+        """Format read/write rates with shared unit."""
+        max_rate = max(read_rate, write_rate)
+        
+        if max_rate >= 1024 * 1024:  # MB/s
+            read_val = f"{read_rate / (1024 * 1024):.1f}"
+            write_val = f"{write_rate / (1024 * 1024):.1f}"
+            return f"↑{read_val} ↓{write_val} MB/s"
+        elif max_rate >= 1024:  # KB/s
+            read_val = f"{read_rate / 1024:.0f}"
+            write_val = f"{write_rate / 1024:.0f}"
+            return f"↑{read_val} ↓{write_val} KB/s"
+        else:  # B/s
+            return f"↑{read_rate:.0f} ↓{write_rate:.0f} B/s"
     
     def modify_title_sequence(self, match: re.Match, stats_text: str) -> bytes:
         """Modify a terminal title escape sequence to include resource stats."""
@@ -443,7 +448,7 @@ class Toptle:
     def process_output(self, data: bytes, stats_text: str) -> bytes:
         """Process output data, intercepting and modifying title sequences."""
         # Check for any title escape sequences
-        for pattern in Config.TITLE_PATTERNS:
+        for pattern in TITLE_SEQUENCE_PATTERNS:
             data = pattern.sub(lambda m: self.modify_title_sequence(m, stats_text), data)
         
         return data
