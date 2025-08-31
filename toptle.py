@@ -255,7 +255,8 @@ class Toptle:
             for proc in processes:
                 try:
                     # CPU and memory (existing)
-                    cpu_percent = proc.cpu_percent()
+                    # Use interval parameter to get immediate CPU measurement
+                    cpu_percent = proc.cpu_percent(interval=0.1)
                     memory_info = proc.memory_info()
                     memory_mb = memory_info.rss / Config.BYTES_TO_MB
                     
