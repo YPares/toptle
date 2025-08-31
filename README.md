@@ -1,15 +1,17 @@
 # Toptle
 
-A transparent process monitor that displays real-time CPU and memory usage in your terminal title bar. Works seamlessly with both interactive applications (vim, htop, less) and non-interactive commands (make, git) without interfering with their operation.
+A transparent process monitor that displays real-time CPU and memory usage in your terminal title bar. Works with both interactive applications (vim, htop, less) and non-interactive commands (make, git) without interfering with their operation.
 
 ## How it works
 
-Toptle automatically detects the type of command you're running and adapts accordingly:
+Toptle tries to detect (in a very rudimentary fashion for now) the type of command you're running and adapts accordingly:
 
-- **Interactive applications** use full PTY mode with terminal size forwarding and title interception
-- **Non-interactive commands** use efficient direct piping with proactive title updates
+- **Interactive applications** use full PTY mode with terminal size forwarding and title interception (default for unknown commands)
+- **Non-interactive commands** use direct piping with proactive title updates
 
-Your terminal title will display resource stats like `📊 5.2% CPU, 45.1MB RAM` or preserve existing titles with `Original Title | 📊 5.2% CPU, 45.1MB RAM`.
+Your terminal title will display resource stats like this: `ORIGINAL_TITLE | 📊 5.2% CPU, 45.1MB RAM`.
+
+(`ORIGINAL_TITLE` is just current working directory + command name if the wrapped command doesn't send any title sequence)
 
 ## Installation
 
@@ -17,7 +19,7 @@ Your terminal title will display resource stats like `📊 5.2% CPU, 45.1MB RAM`
 ```bash
 nix profile install github:YPares/toptle
 # or run directly:
-nix run github:YPares/toptle -- vim myfile.txt
+nix run github:YPares/toptle -- <command>
 ```
 
 **From source:**
@@ -29,7 +31,7 @@ pip install -e .
 ## Usage
 
 ```bash
-toptle [OPTIONS] -- COMMAND [ARGS...]
+toptle [OPTIONS] [--] COMMAND [ARGS...]
 ```
 
 **Options:**
@@ -69,15 +71,16 @@ python3 measure_wrapper_overhead.py                     # Performance verificati
 
 ## Implementation notes
 
+Requires Python 3.8+ and the `psutil` library.
+
 The tool uses different strategies based on command classification:
+
 - PTY mode handles interactive applications that need terminal control
-- Direct piping mode provides zero-overhead monitoring for simple commands
-- Title sequence interception preserves application-set titles
-- Proactive title updates ensure monitoring visibility for non-title-setting apps
+- Direct piping mode provides close to zero overhead for simple commands
+- Title sequence interception preserves the title set by the wrapped command
 
 ## Limitations
 
-- Requires Python 3.8+ and the `psutil` library
 - Title display depends on terminal emulator support for ANSI escape sequences
 - PTY mode introduces minimal overhead for interactive applications
 - Process tree detection may miss processes that detach from the parent
