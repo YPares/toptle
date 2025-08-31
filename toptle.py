@@ -94,6 +94,7 @@ class Toptle:
         self.last_title_update = 0
         self.last_title_interception = 0
         self.last_intercepted_title = ""
+        self.default_title = ""
     
     def get_terminal_size(self) -> Tuple[int, int]:
         """Get current terminal size (rows, cols)."""
@@ -157,6 +158,8 @@ class Toptle:
                 # Create title that preserves last intercepted title if available
                 if self.last_intercepted_title:
                     title_content = f"{self.last_intercepted_title} | {self.last_stats}"
+                elif self.default_title:
+                    title_content = f"{self.default_title} | {self.last_stats}"
                 else:
                     title_content = self.last_stats
                 
@@ -318,6 +321,14 @@ class Toptle:
     
     def run_command(self, command: List[str]) -> int:
         """Run command with resource monitoring and title interception."""
+        
+        # Set up default title using PWD and command
+        try:
+            pwd = os.path.basename(os.getcwd())
+            command_name = os.path.basename(command[0]) if command else "unknown"
+            self.default_title = f"{pwd}> {command_name}"
+        except (OSError, IndexError):
+            self.default_title = f"toptle> {' '.join(command[:2])}"
         
         print(f"🚀 Starting monitored process: {' '.join(command)}")
         print(f"📊 Resource monitoring interval: {self.refresh_interval}s")
