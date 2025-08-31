@@ -481,18 +481,15 @@ class Toptle:
             self.default_title = f"{pwd}> {command_name}"
         except (OSError, IndexError):
             self.default_title = f"toptle> {' '.join(command[:2])}"
-        
-        print(f"🚀 Starting monitored process: {' '.join(command)}")
-        print(f"📊 Resource monitoring interval: {self.refresh_interval}s")
-        
+       
         # Detect if command needs full PTY support
         is_interactive = self.is_likely_interactive(command)
         
         if is_interactive:
-            print(f"🔄 Interactive mode: Full PTY with title interception...")
+            print(f"🐢 Interactive mode (full PTY)")
             return self._run_with_pty(command)
         else:
-            print(f"🔄 Non-interactive mode: Direct piping with proactive titles...")
+            print(f"🐢 Non-interactive mode (direct piping)")
             return self._run_direct(command)
     
     def _run_direct(self, command: List[str]) -> int:
@@ -518,7 +515,7 @@ class Toptle:
             # Wait for process to finish
             exit_code = process.wait()
             
-            print(f"\n✅ Process completed with exit code: {exit_code}")
+            print(f"\n🐢 Process completed with exit code: {exit_code}")
             return exit_code
             
         finally:
@@ -610,7 +607,7 @@ class Toptle:
             # Wait for process to finish
             exit_code = process.wait()
             
-            print(f"\n✅ Process completed with exit code: {exit_code}")
+            print(f"\n🐢 Process completed with exit code: {exit_code}")
             
             return exit_code
             

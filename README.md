@@ -1,4 +1,4 @@
-# Toptle
+# Toptle 🐢
 
 A transparent process monitor that displays real-time CPU and memory usage in your terminal title bar. Works with both interactive applications (vim, htop, less) and non-interactive commands (make, git) without interfering with their operation.
 
