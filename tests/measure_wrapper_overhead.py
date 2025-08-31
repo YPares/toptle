@@ -85,8 +85,8 @@ def main():
     print("=" * 45)
     
     tests = [
-        (["toptle", "--interval", "2", "--", "sleep", "20"], "Python Wrapper (2s)"),
-        (["toptle", "--interval", "0.5", "--", "sleep", "20"], "Python Wrapper (0.5s)"),
+        (["../toptle.py", "--interval", "2", "--", "sleep", "20"], "Python Wrapper (2s)"),
+        (["../toptle.py", "--interval", "0.5", "--", "sleep", "20"], "Python Wrapper (0.5s)"),
         (["./process_monitor_wrapper.sh", "sleep", "20"], "Bash Wrapper"),
         (["sleep", "20"], "Baseline (sleep only)")
     ]

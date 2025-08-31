@@ -1,112 +1,87 @@
-# 🐢 Toptle
+# Toptle
 
-> Like a turtle carrying its shell, **toptle** carries resource stats in your terminal title.
+A transparent process monitor that displays real-time CPU and memory usage in your terminal title bar. Works seamlessly with both interactive applications (vim, htop, less) and non-interactive commands (make, git) without interfering with their operation.
 
-**Toptle** is a transparent process monitor that displays real-time CPU and memory usage in your terminal title bar. It works seamlessly with both interactive applications (vim, htop) and command-line tools (make, git) without interfering with their operation.
+## How it works
 
-## ✨ Features
+Toptle automatically detects the type of command you're running and adapts accordingly:
 
-- **📊 Real-time resource monitoring** - CPU percentage and memory usage
-- **🎯 Terminal title integration** - Stats appear in your terminal title bar
-- **🔄 Title interception** - Preserves and enhances existing title changes
-- **⚡ Dual-mode architecture**:
-  - **Interactive mode**: Full PTY support for vim, htop, etc.
-  - **Non-interactive mode**: Lightweight direct piping for simple commands
-- **🪟 Terminal transparency** - Proper window size forwarding and raw terminal mode
-- **📈 Process tree monitoring** - Tracks parent process and all children
+- **Interactive applications** use full PTY mode with terminal size forwarding and title interception
+- **Non-interactive commands** use efficient direct piping with proactive title updates
 
-## 🚀 Quick Start
+Your terminal title will display resource stats like `📊 5.2% CPU, 45.1MB RAM` or preserve existing titles with `Original Title | 📊 5.2% CPU, 45.1MB RAM`.
 
+## Installation
+
+**Via Nix flake:**
 ```bash
-# Basic usage
-toptle vim myfile.txt
-
-# Custom update interval  
-toptle --interval 1 -- make build
-
-# Custom prefix
-toptle --prefix "🔥" -- htop
+nix profile install github:YPares/toptle
+# or run directly:
+nix run github:YPares/toptle -- vim myfile.txt
 ```
 
-## 📦 Installation
-
-### Requirements
-- Python 3.6+
-- `psutil` library
-
+**From source:**
 ```bash
-pip install psutil
+git clone https://github.com/YPares/toptle.git && cd toptle
+pip install -e .
 ```
 
-### Usage
+## Usage
+
 ```bash
 toptle [OPTIONS] -- COMMAND [ARGS...]
 ```
 
 **Options:**
-- `--interval SECONDS` - Update interval (default: 2.0)
-- `--prefix PREFIX` - Title prefix (default: 📊)
+- `--interval SECONDS` - Update interval in seconds (default: 2.0)
+- `--prefix PREFIX` - Custom prefix for resource stats (default: 📊)
 
-## 💡 How It Works
-
-Toptle automatically detects whether your command needs full terminal support:
-
-- **Interactive applications** (vim, less, htop, bash scripts) → Full PTY mode with title interception
-- **Simple commands** (sleep, echo, make, git) → Efficient direct piping with proactive title updates
-
-## 📋 Examples
-
+**Examples:**
 ```bash
-# Monitor vim editing
-toptle -- vim README.md
-
-# Watch build process
-toptle --interval 0.5 -- make -j4
-
-# Monitor interactive tools
-toptle -- htop
-
-# Track long-running scripts
-toptle -- bash deployment.sh
+toptle -- vim README.md                    # Monitor editing session
+toptle --interval 0.5 -- make -j4          # Watch build with fast updates
+toptle --prefix "⚡" -- ./long-script.sh    # Custom prefix
 ```
 
-## 🎯 What You'll See
+## Features
 
-Your terminal title will show:
-- **With title interception**: `Original Title | 📊 5.2% CPU, 45.1MB RAM`
-- **Proactive updates**: `📊 2.1% CPU, 23.4MB RAM`
+- **Dual-mode architecture** - Automatically chooses optimal monitoring approach
+- **Title interception** - Preserves and enhances existing terminal title changes
+- **Process tree monitoring** - Tracks resource usage of parent process and all children
+- **Terminal transparency** - Proper window size forwarding, raw terminal mode support
+- **SIGWINCH handling** - Terminal resize events work correctly in interactive apps
 
-## 🧪 Testing
+## Performance
 
-Run the test suite:
-```bash
-cd tests/
-
-# Test title interception
-../toptle --interval 1 -- ./test_title_changes.sh
-
-# Test process tree monitoring  
-../toptle --interval 1 -- ./test_child_processes.sh
-
-# Performance verification
-python3 measure_wrapper_overhead.py
-```
-
-## ⚡ Performance
-
-- **Non-interactive commands**: ~0% CPU overhead
-- **Interactive applications**: ~1-2% CPU overhead
+- **Non-interactive commands**: ~0% CPU overhead (direct subprocess piping)
+- **Interactive applications**: ~1-2% CPU overhead (optimized PTY handling)
 - **Memory usage**: ~16MB
 - **Zero interference** with wrapped processes
 
-## 🐢 Why "Toptle"?
+## Testing
 
-A playful combination of "**top**" (the classic process monitor) and "**turtle**" - because like a turtle carries its protective shell, toptle carries your process statistics wherever your commands go.
+```bash
+cd tests/
+../toptle.py --interval 1 -- ./test_title_changes.sh    # Test title interception
+../toptle.py --interval 1 -- ./test_child_processes.sh  # Test process monitoring
+python3 measure_wrapper_overhead.py                     # Performance verification
+```
 
-## 📄 License
+## Implementation notes
 
-Open source - feel free to modify and distribute.
+The tool uses different strategies based on command classification:
+- PTY mode handles interactive applications that need terminal control
+- Direct piping mode provides zero-overhead monitoring for simple commands
+- Title sequence interception preserves application-set titles
+- Proactive title updates ensure monitoring visibility for non-title-setting apps
 
----
+## Limitations
 
-*Toptle: The gentle process monitor that sits on top of your commands and watches over them* 🐢✨
+- Requires Python 3.8+ and the `psutil` library
+- Title display depends on terminal emulator support for ANSI escape sequences
+- PTY mode introduces minimal overhead for interactive applications
+- Process tree detection may miss processes that detach from the parent
+
+## License
+
+MIT

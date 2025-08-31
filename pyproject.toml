@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toptle"
+version = "1.0.0"
+description = "A process monitor in your terminal title"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Yves Parès", email = "yves.pares@gmail.com"}
+]
+keywords = ["process", "monitor", "terminal", "title", "pty"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: Terminals",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "psutil>=5.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/YPares/toptle"
+Repository = "https://github.com/YPares/toptle"
+Issues = "https://github.com/YPares/toptle/issues"
+
+[project.scripts]
+toptle = "toptle:main"
+
+[tool.setuptools]
+py-modules = ["toptle"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "black",
+    "flake8",
+]

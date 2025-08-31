@@ -11,7 +11,7 @@ import os
 def test_basic_command():
     """Test with a basic non-interactive command"""
     print("=== Testing with basic command ===")
-    cmd = ["toptle", "--interval", "0.5", "--", "sleep", "3"]
+    cmd = ["../toptle.py", "--interval", "0.5", "--", "sleep", "3"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     print(f"Exit code: {result.returncode}")
     print(f"Output preview: {result.stdout[:200]}...")
@@ -21,7 +21,7 @@ def test_interactive_preparation():
     """Prepare for interactive testing"""
     print("\n=== Interactive Testing Instructions ===")
     print("To test vim interactively:")
-    print("1. Run: toptle --interval 1 -- vim test_vim.txt")
+    print("1. Run: ../toptle.py --interval 1 -- vim test_vim.txt")
     print("2. Check if:")
     print("   - Terminal title shows resource usage")
     print("   - Vim displays correctly with full terminal size")
@@ -31,8 +31,8 @@ def test_interactive_preparation():
     print("4. Exit vim with :q")
     
     print("\nTo test other applications:")
-    print("- htop: toptle -- htop")
-    print("- less: toptle -- less test_vim.txt")
+    print("- htop: ../toptle.py -- htop")
+    print("- less: ../toptle.py -- less test_vim.txt")
     
     return True
 
@@ -41,7 +41,7 @@ def verify_implementation():
     print("\n=== Verifying Implementation ===")
     
     # Check if the file has been modified with our improvements
-    with open('toptle', 'r') as f:
+    with open('../toptle.py', 'r') as f:
         content = f.read()
     
     improvements = {
