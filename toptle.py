@@ -211,10 +211,15 @@ class Toptle:
             self.set_pty_size(self.master_fd, rows, cols)
 
     def setup_raw_terminal(self):
-        """Set up terminal in raw mode for transparent pass-through."""
+        """Set up terminal for transparent pass-through while preserving signals."""
         try:
             self.original_termios = termios.tcgetattr(sys.stdin.fileno())
-            tty.setraw(sys.stdin.fileno())
+            # Set raw-like mode but preserve signal handling
+            raw_attrs = termios.tcgetattr(sys.stdin.fileno())
+            # Disable canonical mode and echo, but keep signals
+            raw_attrs[3] &= ~(termios.ICANON | termios.ECHO)  # lflag
+            # Keep ISIG flag to preserve Ctrl-C signal generation
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, raw_attrs)
         except (OSError, IOError, termios.error):
             pass  # Not a terminal or can't set raw mode
 
@@ -422,14 +427,35 @@ class Toptle:
 
         self.master_fd = None
 
-    def _setup_signal_handlers(self, process: subprocess.Popen):
-        """Set up signal handlers for clean process termination."""
+    def _setup_signal_handlers(self, process: subprocess.Popen, is_pty_process: bool = False):
+        """Set up signal handlers for proper signal forwarding."""
 
         def signal_handler(signum, frame):
             self.running = False
             try:
-                process.terminate()
-            except ProcessLookupError:
+                if is_pty_process:
+                    # For PTY processes, use dual forwarding approach
+                    if signum == signal.SIGINT:
+                        try:
+                            # Primary method: Send signal to process group first
+                            os.killpg(process.pid, signum)
+                        except (ProcessLookupError, OSError):
+                            # Fallback: Write Ctrl-C control character to PTY master
+                            if self.master_fd is not None:
+                                try:
+                                    os.write(self.master_fd, b'\x03')
+                                except (OSError, IOError):
+                                    pass
+                    else:
+                        # For other signals (SIGTERM), use process group signaling
+                        os.killpg(process.pid, signum)
+                else:
+                    # For non-PTY processes, send signal directly
+                    if signum == signal.SIGINT:
+                        process.send_signal(signal.SIGINT)
+                    else:
+                        process.terminate()
+            except (ProcessLookupError, OSError):
                 pass
 
         signal.signal(signal.SIGINT, signal_handler)
@@ -588,6 +614,9 @@ class Toptle:
             # Get psutil process handle
             self.main_process = psutil.Process(process.pid)
 
+            # Set up signal handlers for clean termination (direct mode)
+            self._setup_signal_handlers(process, is_pty_process=False)
+
             # Start resource monitoring thread
             stats_thread = threading.Thread(target=self.stats_updater, daemon=True)
             stats_thread.start()
@@ -615,7 +644,7 @@ class Toptle:
         rows, cols = self.get_terminal_size()
         self.set_pty_size(master_fd, rows, cols)
 
-        # Set up raw terminal mode for interactive applications
+        # Set up terminal mode for interactive applications
         self.setup_raw_terminal()
 
         # Set up SIGWINCH handler for window size changes
@@ -645,8 +674,8 @@ class Toptle:
             # Close slave fd in parent process
             os.close(slave_fd)
 
-            # Set up signal handlers for clean termination
-            self._setup_signal_handlers(process)
+            # Set up signal handlers for PTY processes with special forwarding
+            self._setup_signal_handlers(process, is_pty_process=True)
 
             # Main I/O loop - optimized for efficiency
             try:
