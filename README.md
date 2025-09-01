@@ -84,7 +84,7 @@ toptle -p "⚡" -m cpu,ram,net -- server     # Custom prefix with network I/O
 cd tests/
 ../toptle.py --interval 1 -- ./test_title_changes.sh    # Test title interception
 ../toptle.py --interval 1 -- ./test_child_processes.sh  # Test process monitoring
-python3 measure_wrapper_overhead.py                     # Performance verification
+nix develop .. -c python3 measure_wrapper_overhead.py   # Performance verification
 ```
 
 ## Implementation notes
