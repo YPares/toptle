@@ -58,6 +58,7 @@ class Config:
 
     # Default values
     DEFAULT_TITLE_PREFIX = "🐢"
+    DEFAULT_TITLE_SUFFIX = "🐢"
 
     # Command classification
     INTERACTIVE_COMMANDS = {
@@ -128,11 +129,13 @@ class Toptle:
         self,
         refresh_interval: float = Config.DEFAULT_REFRESH_INTERVAL,
         title_prefix: str = Config.DEFAULT_TITLE_PREFIX,
+        title_suffix: str = Config.DEFAULT_TITLE_SUFFIX,
         metrics: str = "cpu,ram",
         verbose: bool = False
     ):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
+        self.title_suffix = title_suffix
 
         # Parse and validate metrics
         self.metrics = self._parse_metrics(metrics)
@@ -239,9 +242,9 @@ class Toptle:
             if current_time - self.last_title_update >= Config.TITLE_UPDATE_INTERVAL:
                 # Create title that preserves last intercepted title if available
                 if self.last_intercepted_title:
-                    title_content = f"{self.last_intercepted_title} | {self.last_stats}"
+                    title_content = f"{self.last_intercepted_title} {self.last_stats}"
                 elif self.default_title:
-                    title_content = f"{self.default_title} | {self.last_stats}"
+                    title_content = f"{self.default_title} {self.last_stats}"
                 else:
                     title_content = self.last_stats
 
@@ -457,9 +460,9 @@ class Toptle:
                 metric_parts.append(f"{stats.thread_count} threads")
 
         if metric_parts:
-            return f"{self.title_prefix} {', '.join(metric_parts)}"
+            return f"{self.title_prefix}{', '.join(metric_parts)}{self.title_suffix}"
         else:
-            return self.title_prefix
+            return f"{self.title_prefix}NO METRICS!{self.title_suffix}"
 
     def _format_rate_with_unit(self, bytes_per_sec: float) -> str:
         """Format a rate value with appropriate unit."""
@@ -501,7 +504,7 @@ class Toptle:
 
         # Create new title with resource info
         if original_title:
-            new_title = f"{original_title} | {stats_text}"
+            new_title = f"{original_title} {stats_text}"
         else:
             new_title = stats_text
 
@@ -737,6 +740,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--suffix",
+        "-s",
+        default=Config.DEFAULT_TITLE_PREFIX,
+        help="Suffix for resource stats in title",
+    )
+
+    parser.add_argument(
         "--metrics",
         "-m",
         default="cpu,ram",
@@ -757,7 +767,11 @@ Examples:
         parser.error("No command specified")
 
     monitor = Toptle(
-        refresh_interval=args.interval, title_prefix=args.prefix, metrics=args.metrics, verbose=args.verbose
+        refresh_interval=args.interval,
+        title_prefix=args.prefix,
+        title_suffix=args.suffix,
+        metrics=args.metrics,
+        verbose=args.verbose
     )
 
     try:
