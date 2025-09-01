@@ -60,53 +60,6 @@ class Config:
     DEFAULT_TITLE_PREFIX = "🐢"
     DEFAULT_TITLE_SUFFIX = "🐢"
 
-    # Command classification
-    INTERACTIVE_COMMANDS = {
-        "vim",
-        "vi",
-        "nano",
-        "emacs",
-        "htop",
-        "top",
-        "btop",
-        "atop",
-        "less",
-        "more",
-        "man",
-        "tmux",
-        "screen",
-        "bash",
-        "sh",
-        "zsh",
-        "fish",
-        "python",
-        "python3",
-        "ipython",
-        "node",
-        "irb",
-        "ghci",
-    }
-
-    NON_INTERACTIVE_COMMANDS = {
-        "sleep",
-        "echo",
-        "cat",
-        "grep",
-        "find",
-        "sort",
-        "make",
-        "gcc",
-        "clang",
-        "cargo",
-        "npm",
-        "pip",
-        "git",
-        "curl",
-        "wget",
-        "tar",
-        "gzip",
-        "ls"
-    }
 
 
 @dataclass
@@ -131,7 +84,8 @@ class Toptle:
         title_prefix: str = Config.DEFAULT_TITLE_PREFIX,
         title_suffix: str = Config.DEFAULT_TITLE_SUFFIX,
         metrics: str = "cpu,ram",
-        verbose: bool = False
+        verbose: bool = False,
+        pty_mode: bool = False
     ):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
@@ -141,6 +95,7 @@ class Toptle:
         self.metrics = self._parse_metrics(metrics)
 
         self.verbose = verbose
+        self.pty_mode = pty_mode
 
         self.main_process: Optional[psutil.Process] = None
         self.original_titles: List[str] = []
@@ -209,16 +164,39 @@ class Toptle:
         if self.master_fd is not None:
             rows, cols = self.get_terminal_size()
             self.set_pty_size(self.master_fd, rows, cols)
+            
+            # Forward SIGWINCH to the child process group
+            if hasattr(self, 'main_process') and self.main_process is not None:
+                try:
+                    os.killpg(self.main_process.pid, signal.SIGWINCH)
+                except (ProcessLookupError, OSError):
+                    pass  # Process may have already terminated
 
     def setup_raw_terminal(self):
         """Set up terminal for transparent pass-through while preserving signals."""
         try:
             self.original_termios = termios.tcgetattr(sys.stdin.fileno())
-            # Set raw-like mode but preserve signal handling
+            # Configure proper raw mode while preserving signal handling
             raw_attrs = termios.tcgetattr(sys.stdin.fileno())
-            # Disable canonical mode and echo, but keep signals
-            raw_attrs[3] &= ~(termios.ICANON | termios.ECHO)  # lflag
-            # Keep ISIG flag to preserve Ctrl-C signal generation
+            
+            # Input flags (c_iflag): disable input processing but preserve basics
+            raw_attrs[0] &= ~(termios.BRKINT | termios.ICRNL | termios.INPCK | 
+                             termios.ISTRIP | termios.IXON)
+            
+            # Output flags (c_oflag): disable output processing
+            raw_attrs[1] &= ~termios.OPOST
+            
+            # Control flags (c_cflag): ensure 8-bit chars
+            raw_attrs[2] |= termios.CS8
+            
+            # Local flags (c_lflag): disable canonical mode and echo, but KEEP ISIG for signals
+            raw_attrs[3] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN)
+            # Note: ISIG is intentionally preserved for signal handling
+            
+            # Set read timeouts for non-blocking reads
+            raw_attrs[6][termios.VMIN] = 0
+            raw_attrs[6][termios.VTIME] = 1
+            
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, raw_attrs)
         except (OSError, IOError, termios.error):
             pass  # Not a terminal or can't set raw mode
@@ -262,22 +240,6 @@ class Toptle:
                 except (OSError, IOError):
                     pass  # Ignore output errors
 
-    def is_likely_interactive(self, command: List[str]) -> bool:
-        """Detect if a command is likely to be an interactive application"""
-        if not command:
-            return False
-
-        # Get the base command name
-        cmd_name = os.path.basename(command[0])
-
-        if cmd_name in Config.NON_INTERACTIVE_COMMANDS:
-            return False
-
-        if cmd_name in Config.INTERACTIVE_COMMANDS:
-            return True
-
-        # Default to interactive for unknown commands to be safe
-        return True
 
     def get_process_tree_stats(self, process: psutil.Process) -> ProcessStats:
         """Get resource statistics for process and all its children."""
@@ -431,29 +393,38 @@ class Toptle:
         """Set up signal handlers for proper signal forwarding."""
 
         def signal_handler(signum, frame):
-            self.running = False
+            
             try:
                 if is_pty_process:
-                    # For PTY processes, use dual forwarding approach
+                    # For PTY processes, use control character forwarding
                     if signum == signal.SIGINT:
+                        # For PTY processes, send control character to let PTY generate signal
+                        # This matches how real terminals work: Ctrl+C -> control char -> PTY generates SIGINT
+                        # Interactive apps expect signals from terminal line discipline, not programmatic
+                        if hasattr(self, 'master_fd') and self.master_fd is not None:
+                            try:
+                                os.write(self.master_fd, b'\x03')  # Send Ctrl+C control character
+                            except (OSError, IOError):
+                                pass
+                        else:
+                            # Fallback to signal if no PTY available
+                            try:
+                                os.killpg(process.pid, signum)
+                            except (ProcessLookupError, OSError):
+                                pass
+                    else:
+                        # For other signals (SIGTERM), terminate toptle and forward signal
+                        self.running = False
                         try:
-                            # Primary method: Send signal to process group first
                             os.killpg(process.pid, signum)
                         except (ProcessLookupError, OSError):
-                            # Fallback: Write Ctrl-C control character to PTY master
-                            if self.master_fd is not None:
-                                try:
-                                    os.write(self.master_fd, b'\x03')
-                                except (OSError, IOError):
-                                    pass
-                    else:
-                        # For other signals (SIGTERM), use process group signaling
-                        os.killpg(process.pid, signum)
+                            pass
                 else:
                     # For non-PTY processes, send signal directly
                     if signum == signal.SIGINT:
                         process.send_signal(signal.SIGINT)
                     else:
+                        self.running = False
                         process.terminate()
             except (ProcessLookupError, OSError):
                 pass
@@ -588,23 +559,20 @@ class Toptle:
         except (OSError, IndexError):
             self.default_title = f"toptle> {' '.join(command[:2])}"
 
-        # Detect if command needs full PTY support
-        is_interactive = self.is_likely_interactive(command)
-
         if self.verbose:
             print(f"🐢 Refreshing {','.join(self.metrics)} every {self.refresh_interval}s")
         
-        if is_interactive:
+        if self.pty_mode:
             if self.verbose:
-                print("🐢 Interactive mode (full PTY)")
+                print("🐢 PTY mode (full terminal emulation)")
             return self._run_with_pty(command)
         else:
             if self.verbose:
-                print("🐢 Non-interactive mode (direct piping)")
+                print("🐢 Direct mode (transparent piping)")
             return self._run_direct(command)
 
     def _run_direct(self, command: List[str]) -> int:
-        """Run command using direct subprocess for non-interactive commands."""
+        """Run command using direct subprocess with transparent piping."""
         try:
             # Start subprocess with direct piping
             process = subprocess.Popen(
@@ -634,7 +602,7 @@ class Toptle:
             self._cleanup_resources()
 
     def _run_with_pty(self, command: List[str]) -> int:
-        """Run command using PTY for full interactive support."""
+        """Run command using PTY for full terminal emulation."""
 
         # Create PTY
         master_fd, slave_fd = pty.openpty()
@@ -644,7 +612,7 @@ class Toptle:
         rows, cols = self.get_terminal_size()
         self.set_pty_size(master_fd, rows, cols)
 
-        # Set up terminal mode for interactive applications
+        # Set up terminal mode for PTY applications
         self.setup_raw_terminal()
 
         # Set up SIGWINCH handler for window size changes
@@ -738,10 +706,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s htop
-  %(prog)s -i 1 -p "🔥" -- vim README.md
-  %(prog)s -m cpu,ram,disk -- make build
-  %(prog)s -m all -i 0.5 -- ./long-running-script.sh
+  %(prog)s -- python -m http.server 8000          # Direct mode (default, transparent)
+  %(prog)s --pty -- helix file.txt               # PTY mode (full terminal emulation)  
+  %(prog)s --pty -- vim README.md                # PTY mode for edge cases
+  %(prog)s -r 0.5 -p "🔥" -- make build           # Fast updates with custom prefix
+  %(prog)s -m cpu,ram,disk -- ./build-script.sh   # Monitor disk I/O
   %(prog)s -- bash -c "for i in {1..100}; do echo $i; sleep 0.1; done"
         """,
     )
@@ -754,11 +723,11 @@ Examples:
     )
 
     parser.add_argument(
-        "--interval",
-        "-i",
+        "--refresh",
+        "-r",
         type=float,
         default=Config.DEFAULT_REFRESH_INTERVAL,
-        help="Resource monitoring update interval in seconds (default: 2.0)",
+        help="Resource monitoring refresh interval in seconds (default: 2.0)",
     )
 
     parser.add_argument(
@@ -783,6 +752,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--pty",
+        "-t", 
+        action="store_true",
+        help="Use PTY mode: full terminal emulation (rarely needed)",
+    )
+
+    parser.add_argument(
         "command", nargs=argparse.REMAINDER, help="Command to run with monitoring"
     )
 
@@ -796,11 +772,12 @@ Examples:
         parser.error("No command specified")
 
     monitor = Toptle(
-        refresh_interval=args.interval,
+        refresh_interval=args.refresh,
         title_prefix=args.prefix,
         title_suffix=args.suffix,
         metrics=args.metrics,
-        verbose=args.verbose
+        verbose=args.verbose,
+        pty_mode=args.pty
     )
 
     try:
