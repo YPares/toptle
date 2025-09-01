@@ -27,7 +27,7 @@ toptle [OPTIONS] [--] COMMAND [ARGS...]
 
 **Options:**
 - `--refresh`, `-r` - Update interval in seconds (default: 2.0)
-- `--metrics`, `-m` - Display: cpu,ram,disk,net,files,threads,all (default: cpu,ram)  
+- `--metrics`, `-m` - Display: cpu,ram,disk,files,threads,all (default: cpu,ram)  
 - `--pty`, `-t` - PTY mode for edge cases (rarely needed)
 
 **Examples:**
@@ -41,14 +41,14 @@ toptle --pty -- special-app               # PTY mode if needed
 ## Features
 
 - **Zero interference** - Works transparently with any command
-- **Customizable metrics** - CPU, RAM, disk/network I/O, file descriptors, threads
+- **Customizable metrics** - CPU, RAM, disk I/O, file descriptors, threads
 - **Process tree monitoring** - Tracks parent and all child processes  
 - **Title interception** - Captures and combines with app titles (requires `--pty`)
 
 ## Metrics
 
-**Available**: cpu, ram, disk, net, files, threads  
-**Examples**: `📊 5.2% CPU, 45MB RAM` • `📊 5.2% CPU, 45MB RAM, disk ↑12 ↓8 KB/s`
+**Available**: cpu, ram, disk, files, threads  
+**Examples**: `📊 5.2% CPU, 45MB RAM` • `📊 5.2% CPU, 45MB RAM, disk ↑12 ↓8 KB/s, 15 files`
 
 ## Modes
 

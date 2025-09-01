@@ -70,8 +70,6 @@ class ProcessStats:
     memory_mb: float = 0.0
     disk_read_rate: float = 0.0
     disk_write_rate: float = 0.0
-    net_sent_rate: float = 0.0
-    net_recv_rate: float = 0.0
     open_files: int = 0
     thread_count: int = 0
     process_count: int = 0
@@ -110,13 +108,12 @@ class Toptle:
 
         # For rate calculations
         self.last_io_counters = None
-        self.last_net_counters = None
         self.last_measurement_time = 0
 
     def _parse_metrics(self, metrics_str: str) -> List[str]:
         """Parse and validate metrics string."""
-        available_metrics_set = {"cpu", "ram", "disk", "net", "files", "threads"}
-        available_metrics_list = ["cpu", "ram", "disk", "net", "files", "threads"]
+        available_metrics_set = {"cpu", "ram", "disk", "files", "threads"}
+        available_metrics_list = ["cpu", "ram", "disk", "files", "threads"]
 
         if metrics_str.lower() == "all":
             return available_metrics_list.copy()
@@ -293,31 +290,6 @@ class Toptle:
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            # Network I/O (system-wide, if requested)
-            net_sent_rate = 0.0
-            net_recv_rate = 0.0
-            if "net" in self.metrics:
-                try:
-                    net_counters = psutil.net_io_counters()
-                    if (
-                        net_counters
-                        and self.last_net_counters
-                        and self.last_measurement_time
-                    ):
-                        time_delta = current_time - self.last_measurement_time
-                        if time_delta > 0:
-                            net_sent_rate = (
-                                net_counters.bytes_sent
-                                - self.last_net_counters.bytes_sent
-                            ) / time_delta
-                            net_recv_rate = (
-                                net_counters.bytes_recv
-                                - self.last_net_counters.bytes_recv
-                            ) / time_delta
-
-                    self.last_net_counters = net_counters
-                except (AttributeError, psutil.AccessDenied):
-                    pass
 
             # Disk I/O rates
             disk_read_rate = 0.0
@@ -350,8 +322,6 @@ class Toptle:
                 memory_mb=total_memory,
                 disk_read_rate=disk_read_rate,
                 disk_write_rate=disk_write_rate,
-                net_sent_rate=net_sent_rate,
-                net_recv_rate=net_recv_rate,
                 open_files=total_files,
                 thread_count=total_threads,
                 process_count=len(processes),
@@ -446,11 +416,6 @@ class Toptle:
                     stats.disk_read_rate, stats.disk_write_rate
                 )
                 metric_parts.append(f"disk {formatted_rates}")
-            elif metric == "net":
-                formatted_rates = self._format_io_rates(
-                    stats.net_sent_rate, stats.net_recv_rate
-                )
-                metric_parts.append(f"net {formatted_rates}")
             elif metric == "files":
                 metric_parts.append(f"{stats.open_files} files")
             elif metric == "threads":
@@ -748,7 +713,7 @@ Examples:
         "--metrics",
         "-m",
         default="cpu,ram",
-        help="Metrics to display: cpu,ram,disk,net,files,threads,all (default: cpu,ram)",
+        help="Metrics to display: cpu,ram,disk,files,threads,all (default: cpu,ram)",
     )
 
     parser.add_argument(
