@@ -517,14 +517,12 @@ class Toptle:
         """Run command with resource monitoring and title interception."""
 
         # Set up default title using PWD and command
-        try:
-            pwd = os.path.basename(os.getcwd())
-            command_name = os.path.basename(command[0]) if command else "unknown"
-            self.default_title = f"{pwd}> {command_name}"
-        except (OSError, IndexError):
-            self.default_title = f"toptle> {' '.join(command[:2])}"
+        pwd = os.path.basename(os.getcwd())
+        shortened_cmd = [os.path.basename(x) for x in command[:3]]
+        self.default_title = f"{pwd}> {' '.join(shortened_cmd)}"
 
         if self.verbose:
+            print(f"🐢 Monitoring '{' '.join(command)}'")
             print(f"🐢 Refreshing {','.join(self.metrics)} every {self.refresh_interval}s")
         
         if self.pty_mode:
