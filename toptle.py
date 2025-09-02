@@ -58,7 +58,7 @@ class Config:
 
     # Default values
     DEFAULT_TITLE_PREFIX = "🐢"
-    DEFAULT_METRIC_SEPARATOR = "⁕"
+    DEFAULT_METRIC_SEPARATOR = " "
     DEFAULT_TITLE_SUFFIX = "🐢"
 
 
@@ -410,18 +410,18 @@ class Toptle:
 
         for metric in self.metrics:
             if metric == "cpu":
-                metric_parts.append(f"{stats.cpu_percent:.1f}% CPU")
+                metric_parts.append(f"CPU:{stats.cpu_percent:.1f}%")
             elif metric == "ram":
-                metric_parts.append(f"{stats.memory_mb:.1f}MB RAM")
+                metric_parts.append(f"RAM:{stats.memory_mb:.1f}MB")
             elif metric == "disk":
                 formatted_rates = self._format_io_rates(
                     stats.disk_read_rate, stats.disk_write_rate
                 )
-                metric_parts.append(f"disk {formatted_rates}")
+                metric_parts.append(f"Disk:{formatted_rates}")
             elif metric == "files":
-                metric_parts.append(f"{stats.open_files} files")
+                metric_parts.append(f"Files:{stats.open_files}")
             elif metric == "threads":
-                metric_parts.append(f"{stats.thread_count} threads")
+                metric_parts.append(f"Threads:{stats.thread_count}")
 
         if metric_parts:
             return f"{self.title_prefix}{self.metric_separator.join(metric_parts)}{self.title_suffix}"
@@ -442,15 +442,19 @@ class Toptle:
         max_rate = max(read_rate, write_rate)
 
         if max_rate >= 1024 * 1024:  # MB/s
+            unit = "MB/s"
             read_val = f"{read_rate / (1024 * 1024):.1f}"
             write_val = f"{write_rate / (1024 * 1024):.1f}"
-            return f"↑{read_val} ↓{write_val} MB/s"
         elif max_rate >= 1024:  # KB/s
+            unit = "KB/s"
             read_val = f"{read_rate / 1024:.0f}"
             write_val = f"{write_rate / 1024:.0f}"
-            return f"↑{read_val} ↓{write_val} KB/s"
         else:  # B/s
-            return f"↑{read_rate:.0f} ↓{write_rate:.0f} B/s"
+            unit = "B/s"
+            read_val = f"{read_rate:.0f}"
+            write_val = f"{write_rate:.0f}"
+
+        return f"↑{read_val}·↓{write_val}{unit}"
 
     def modify_title_sequence(self, match: re.Match, stats_text: str) -> bytes:
         """Modify a terminal title escape sequence to include resource stats."""
