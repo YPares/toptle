@@ -58,6 +58,7 @@ class Config:
 
     # Default values
     DEFAULT_TITLE_PREFIX = "🐢"
+    DEFAULT_METRIC_SEPARATOR = "⁕"
     DEFAULT_TITLE_SUFFIX = "🐢"
 
 
@@ -80,6 +81,7 @@ class Toptle:
         self,
         refresh_interval: float = Config.DEFAULT_REFRESH_INTERVAL,
         title_prefix: str = Config.DEFAULT_TITLE_PREFIX,
+        metric_separator: str = Config.DEFAULT_METRIC_SEPARATOR,
         title_suffix: str = Config.DEFAULT_TITLE_SUFFIX,
         metrics: str = "cpu,ram",
         verbose: bool = False,
@@ -87,6 +89,7 @@ class Toptle:
     ):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
+        self.metric_separator = metric_separator
         self.title_suffix = title_suffix
 
         # Parse and validate metrics
@@ -112,21 +115,20 @@ class Toptle:
 
     def _parse_metrics(self, metrics_str: str) -> List[str]:
         """Parse and validate metrics string."""
-        available_metrics_set = {"cpu", "ram", "disk", "files", "threads"}
-        available_metrics_list = ["cpu", "ram", "disk", "files", "threads"]
+        available_metrics = ["cpu", "ram", "disk", "files", "threads"]
 
         if metrics_str.lower() == "all":
-            return available_metrics_list.copy()
+            return available_metrics.copy()
 
         metrics = [m.strip().lower() for m in metrics_str.split(",")]
 
         # Validate all metrics are available using set operations (faster)
         # but preserve the original order by only using sets for validation
-        invalid_metrics = set(metrics) - available_metrics_set
+        invalid_metrics = set(metrics) - set(available_metrics)
         if invalid_metrics:
             raise ValueError(
                 f"Invalid metrics: {', '.join(sorted(invalid_metrics))}. "
-                f"Available: {', '.join(available_metrics_list)}"
+                f"Available: {', '.join(available_metrics)}"
             )
 
         return metrics
@@ -422,7 +424,7 @@ class Toptle:
                 metric_parts.append(f"{stats.thread_count} threads")
 
         if metric_parts:
-            return f"{self.title_prefix}{', '.join(metric_parts)}{self.title_suffix}"
+            return f"{self.title_prefix}{self.metric_separator.join(metric_parts)}{self.title_suffix}"
         else:
             return f"{self.title_prefix}NO METRICS!{self.title_suffix}"
 
@@ -695,14 +697,21 @@ Examples:
 
     parser.add_argument(
         "--prefix",
-        "-p",
+        "-b",
         default=Config.DEFAULT_TITLE_PREFIX,
         help="Prefix for resource stats in title",
     )
 
     parser.add_argument(
-        "--suffix",
+        "--separator",
         "-s",
+        default=Config.DEFAULT_METRIC_SEPARATOR,
+        help="Separator between metrics in title",
+    )
+
+    parser.add_argument(
+        "--suffix",
+        "-e",
         default=Config.DEFAULT_TITLE_PREFIX,
         help="Suffix for resource stats in title",
     )
@@ -716,7 +725,7 @@ Examples:
 
     parser.add_argument(
         "--pty",
-        "-t", 
+        "-p",
         action="store_true",
         help="Use PTY mode: full terminal emulation (rarely needed)",
     )
@@ -737,6 +746,7 @@ Examples:
     monitor = Toptle(
         refresh_interval=args.refresh,
         title_prefix=args.prefix,
+        metric_separator=args.separator,
         title_suffix=args.suffix,
         metrics=args.metrics,
         verbose=args.verbose,
