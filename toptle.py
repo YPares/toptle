@@ -115,7 +115,7 @@ class Toptle:
 
     def _parse_metrics(self, metrics_str: str) -> List[str]:
         """Parse and validate metrics string."""
-        available_metrics = ["cpu", "ram", "disk", "files", "threads"]
+        available_metrics = ["cpu", "ram", "procs", "disk", "files", "threads"]
 
         if metrics_str.lower() == "all":
             return available_metrics.copy()
@@ -413,6 +413,8 @@ class Toptle:
                 metric_parts.append(f"CPU:{stats.cpu_percent:.1f}%")
             elif metric == "ram":
                 metric_parts.append(f"RAM:{stats.memory_mb:.1f}MB")
+            elif metric == "procs":
+                metric_parts.append(f"Procs:{stats.process_count}")
             elif metric == "disk":
                 formatted_rates = self._format_io_rates(
                     stats.disk_read_rate, stats.disk_write_rate
@@ -724,7 +726,7 @@ Examples:
         "--metrics",
         "-m",
         default="cpu,ram",
-        help="Metrics to display: cpu,ram,disk,files,threads,all (default: cpu,ram)",
+        help="Metrics to display: cpu,ram,disk,files,threads,procs,all (default: cpu,ram)",
     )
 
     parser.add_argument(
