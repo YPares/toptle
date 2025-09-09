@@ -85,7 +85,8 @@ class Toptle:
         title_suffix: str = Config.DEFAULT_TITLE_SUFFIX,
         metrics: str = "cpu,ram",
         verbose: bool = False,
-        pty_mode: bool = False
+        pty_mode: bool = False,
+        default_title: str = None
     ):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
@@ -107,7 +108,7 @@ class Toptle:
         self.last_title_update = 0
         self.last_title_interception = 0
         self.last_intercepted_title = ""
-        self.default_title = ""
+        self.default_title = default_title
 
         # For rate calculations
         self.last_io_counters = None
@@ -524,10 +525,11 @@ class Toptle:
     def run_command(self, command: List[str]) -> int:
         """Run command with resource monitoring and title interception."""
 
-        # Set up default title using PWD and command
-        pwd = os.path.basename(os.getcwd())
-        shortened_cmd = [os.path.basename(x) for x in command[:3]]
-        self.default_title = f"{pwd}> {' '.join(shortened_cmd)}"
+        if not self.default_title:
+            # Set up default title using PWD and command
+            pwd = os.path.basename(os.getcwd())
+            shortened_cmd = [os.path.basename(x) for x in command[:3]]
+            self.default_title = f"{pwd}> {' '.join(shortened_cmd)}"
 
         if self.verbose:
             print(f"🐢 Monitoring '{' '.join(command)}'")
@@ -737,6 +739,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--title",
+        "-t",
+        default=None,
+        help="Which title to use by default if the wrapped command does not set one"
+    )
+
+    parser.add_argument(
         "command", nargs=argparse.REMAINDER, help="Command to run with monitoring"
     )
 
@@ -756,7 +765,8 @@ Examples:
         title_suffix=args.suffix,
         metrics=args.metrics,
         verbose=args.verbose,
-        pty_mode=args.pty
+        pty_mode=args.pty,
+        default_title=args.title
     )
 
     try:
