@@ -1,1 +1,4 @@
-.direnv
+dist/
+toptle.egg-info/
+__pycache__/
+result

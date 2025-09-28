@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
+import argparse
+import fcntl
 import os
-import sys
+import psutil
 import pty
+import re
 import select
+import signal
+import struct
 import subprocess
+import sys
+import termios
 import threading
 import time
-import re
-import signal
-import argparse
-import struct
-import fcntl
-import termios
-import tty
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
-
-try:
-    import psutil
-except ImportError:
-    print(
-        "ERROR: psutil module required. Install with: pip install psutil",
-        file=sys.stderr,
-    )
-    sys.exit(1)
 
 
 # Pre-compiled regex patterns for title sequence detection (module-level for efficiency)
@@ -62,7 +53,6 @@ class Config:
     DEFAULT_TITLE_SUFFIX = "🐢"
 
 
-
 @dataclass
 class ProcessStats:
     """Resource statistics for a process tree."""
@@ -86,7 +76,7 @@ class Toptle:
         metrics: str = "cpu,ram",
         verbose: bool = False,
         pty_mode: bool = False,
-        default_title: str = None
+        default_title: Optional[str] = None,
     ):
         self.refresh_interval = refresh_interval
         self.title_prefix = title_prefix
@@ -164,9 +154,9 @@ class Toptle:
         if self.master_fd is not None:
             rows, cols = self.get_terminal_size()
             self.set_pty_size(self.master_fd, rows, cols)
-            
+
             # Forward SIGWINCH to the child process group
-            if hasattr(self, 'main_process') and self.main_process is not None:
+            if hasattr(self, "main_process") and self.main_process is not None:
                 try:
                     os.killpg(self.main_process.pid, signal.SIGWINCH)
                 except (ProcessLookupError, OSError):
@@ -178,25 +168,30 @@ class Toptle:
             self.original_termios = termios.tcgetattr(sys.stdin.fileno())
             # Configure proper raw mode while preserving signal handling
             raw_attrs = termios.tcgetattr(sys.stdin.fileno())
-            
+
             # Input flags (c_iflag): disable input processing but preserve basics
-            raw_attrs[0] &= ~(termios.BRKINT | termios.ICRNL | termios.INPCK | 
-                             termios.ISTRIP | termios.IXON)
-            
+            raw_attrs[0] &= ~(
+                termios.BRKINT
+                | termios.ICRNL
+                | termios.INPCK
+                | termios.ISTRIP
+                | termios.IXON
+            )
+
             # Output flags (c_oflag): disable output processing
             raw_attrs[1] &= ~termios.OPOST
-            
+
             # Control flags (c_cflag): ensure 8-bit chars
             raw_attrs[2] |= termios.CS8
-            
+
             # Local flags (c_lflag): disable canonical mode and echo, but KEEP ISIG for signals
             raw_attrs[3] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN)
             # Note: ISIG is intentionally preserved for signal handling
-            
+
             # Set read timeouts for non-blocking reads
             raw_attrs[6][termios.VMIN] = 0
             raw_attrs[6][termios.VTIME] = 1
-            
+
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, raw_attrs)
         except (OSError, IOError, termios.error):
             pass  # Not a terminal or can't set raw mode
@@ -239,7 +234,6 @@ class Toptle:
                     self.last_title_update = current_time
                 except (OSError, IOError):
                     pass  # Ignore output errors
-
 
     def get_process_tree_stats(self, process: psutil.Process) -> ProcessStats:
         """Get resource statistics for process and all its children."""
@@ -292,7 +286,6 @@ class Toptle:
 
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-
 
             # Disk I/O rates
             disk_read_rate = 0.0
@@ -362,11 +355,12 @@ class Toptle:
 
         self.master_fd = None
 
-    def _setup_signal_handlers(self, process: subprocess.Popen, is_pty_process: bool = False):
+    def _setup_signal_handlers(
+        self, process: subprocess.Popen, is_pty_process: bool = False
+    ):
         """Set up signal handlers for proper signal forwarding."""
 
         def signal_handler(signum, frame):
-            
             try:
                 if is_pty_process:
                     # For PTY processes, use control character forwarding
@@ -374,9 +368,11 @@ class Toptle:
                         # For PTY processes, send control character to let PTY generate signal
                         # This matches how real terminals work: Ctrl+C -> control char -> PTY generates SIGINT
                         # Interactive apps expect signals from terminal line discipline, not programmatic
-                        if hasattr(self, 'master_fd') and self.master_fd is not None:
+                        if hasattr(self, "master_fd") and self.master_fd is not None:
                             try:
-                                os.write(self.master_fd, b'\x03')  # Send Ctrl+C control character
+                                os.write(
+                                    self.master_fd, b"\x03"
+                                )  # Send Ctrl+C control character
                             except (OSError, IOError):
                                 pass
                         else:
@@ -533,8 +529,10 @@ class Toptle:
 
         if self.verbose:
             print(f"🐢 Monitoring '{' '.join(command)}'")
-            print(f"🐢 Refreshing {','.join(self.metrics)} every {self.refresh_interval}s")
-        
+            print(
+                f"🐢 Refreshing {','.join(self.metrics)} every {self.refresh_interval}s"
+            )
+
         if self.pty_mode:
             if self.verbose:
                 print("🐢 PTY mode (full terminal emulation)")
@@ -742,7 +740,7 @@ Examples:
         "--title",
         "-t",
         default=None,
-        help="Which title to use by default if the wrapped command does not set one"
+        help="Which title to use by default if the wrapped command does not set one",
     )
 
     parser.add_argument(
@@ -766,7 +764,7 @@ Examples:
         metrics=args.metrics,
         verbose=args.verbose,
         pty_mode=args.pty,
-        default_title=args.title
+        default_title=args.title,
     )
 
     try:

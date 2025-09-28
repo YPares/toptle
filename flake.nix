@@ -19,7 +19,7 @@
 
         toptle = pkgs.python3Packages.buildPythonApplication {
           pname = "toptle";
-          version = "1.0.0";
+          version = "0.1.1";
           format = "pyproject";
 
           src = ./.;
@@ -37,7 +37,7 @@
           doCheck = false;
 
           meta = with pkgs.lib; {
-            description = "Process monitor with terminal title integration - like a turtle carrying its shell";
+            description = "Process monitor with terminal title integration";
             homepage = "https://github.com/YPares/toptle";
             license = licenses.mit;
             maintainers = [ ];
@@ -52,15 +52,6 @@
         apps.default = flake-utils.lib.mkApp {
           drv = toptle;
           exePath = "/bin/toptle";
-        };
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            python3
-            python3Packages.psutil
-            #python3Packages.ruff
-            python3Packages.python-lsp-server
-          ];
         };
       }
     );
