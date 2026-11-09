@@ -48,9 +48,9 @@ class Config:
     TITLE_SEQUENCE_FORMAT = "\033]0;{}\007"
 
     # Default values
-    DEFAULT_TITLE_PREFIX = "🐢"
+    DEFAULT_TITLE_PREFIX = ""
     DEFAULT_METRIC_SEPARATOR = " "
-    DEFAULT_TITLE_SUFFIX = "🐢"
+    DEFAULT_TITLE_SUFFIX = ""
 
 
 @dataclass
